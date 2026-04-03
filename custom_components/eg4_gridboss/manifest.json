@@ -1,0 +1,12 @@
+{
+  "domain": "eg4_gridboss",
+  "name": "EG4 GridBOSS",
+  "version": "0.1.0",
+  "documentation": "https://github.com/digitalassetadvisors/casper-test-implementation",
+  "issue_tracker": "https://github.com/digitalassetadvisors/casper-test-implementation/issues",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": [],
+  "iot_class": "local_polling",
+  "config_flow": true
+}

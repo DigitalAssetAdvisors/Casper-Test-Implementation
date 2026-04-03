@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "EG4 GridBOSS Setup",
+        "description": "Enter the connection details for your EG4 monitoring dongle. The dongle must be reachable from your Home Assistant host — either via its own AP (10.10.10.1) or on your LAN.",
+        "data": {
+          "host": "Dongle IP or Hostname",
+          "port": "TCP Port (default: 8000)",
+          "unit_id": "Modbus Unit ID (default: 1)",
+          "poll_interval": "Poll Interval (seconds, min 10)",
+          "protocol": "Protocol"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the dongle. Check the IP, port, and that your HA host is on the same network as the dongle."
+    },
+    "abort": {
+      "already_configured": "This dongle (host:port) is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "EG4 GridBOSS Options",
+        "data": {
+          "poll_interval": "Poll Interval (seconds, min 10)",
+          "protocol": "Protocol",
+          "unit_id": "Modbus Unit ID"
+        }
+      }
+    }
+  }
+}
