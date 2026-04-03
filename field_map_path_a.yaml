@@ -1,0 +1,343 @@
+# field_map_path_a.yaml
+# EG4 GridBOSS — Inferred register field map (Path A: dongle local TCP)
+#
+# ALL entries are SPECULATIVE until confirmed by:
+#   1. Packet capture showing these register addresses in real traffic
+#   2. Correlation: value changes when known real-world condition changes
+#
+# confidence levels:
+#   confirmed   — Seen in capture AND correlated with physical state changes
+#   likely      — Strong structural reason + partial correlation
+#   speculative — Inferred from Growatt/EG4 family precedent only; not yet tested
+#
+# Protocol assumption: Modbus TCP (FC 03 = holding, FC 04 = input) on port 8000
+# Unit ID assumption: 1 (common default; may be 0 or other value)
+# -------------------------------------------------------------------------
+
+metadata:
+  device: EG4 GridBOSS
+  protocol_candidate: Modbus TCP
+  endpoint: "10.10.10.1:8000"
+  last_updated: "pre-capture draft"
+  status: speculative_draft
+  note: >
+    This map is derived from Growatt-family and generic EG4 inverter
+    documentation available in the public domain. EG4 GridBOSS is an energy
+    management hub and its register map may differ significantly from a
+    standard inverter. This file will be updated after packet capture analysis.
+
+# =========================================================================
+# INPUT REGISTERS (Function Code 0x04 — read-only real-time data)
+# =========================================================================
+
+input_registers:
+
+  - name: inverter_status
+    raw_address: 0
+    raw_address_hex: "0x0000"
+    function_code: 4
+    type: uint16_bitfield
+    scaling: 1
+    unit: ""
+    mqtt_topic: "eg4/gridboss/inverter_status"
+    confidence: speculative
+    notes: >
+      Status bitfield or enum at register 0 is standard for Growatt/EG4 family.
+      Common values: 0=standby, 1=normal, 2=fault.
+      Exact bit definitions for GridBOSS not confirmed.
+
+  - name: pv1_voltage
+    raw_address: 1
+    raw_address_hex: "0x0001"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "V"
+    mqtt_topic: "eg4/gridboss/pv1_voltage_v"
+    confidence: speculative
+    notes: >
+      Growatt-family: PV1 voltage at input[1], 0.1V scaling.
+      Confirm: value should track PV string voltage (typically 200–550V for
+      residential string).
+
+  - name: pv1_current
+    raw_address: 2
+    raw_address_hex: "0x0002"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "A"
+    mqtt_topic: "eg4/gridboss/pv1_current_a"
+    confidence: speculative
+    notes: >
+      Growatt-family: PV1 current at input[2], 0.1A scaling.
+
+  - name: pv1_power
+    raw_address: 3
+    raw_address_hex: "0x0003"
+    function_code: 4
+    type: uint32_hi_lo  # high word at addr 3, low word at addr 4
+    scaling: 0.1        # some devices: divide by 10 gives watts; others: raw = watts
+    unit: "W"
+    mqtt_topic: "eg4/gridboss/pv_power_w"
+    confidence: speculative
+    notes: >
+      32-bit value: (reg[3] << 16) | reg[4].
+      Growatt uses 0.1W scaling; some EG4 variants may use 1W (raw).
+      VERIFY: shade a panel or disconnect one string and watch this value change.
+
+  - name: pv2_voltage
+    raw_address: 5
+    raw_address_hex: "0x0005"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "V"
+    mqtt_topic: "eg4/gridboss/pv2_voltage_v"
+    confidence: speculative
+    notes: "Same as pv1_voltage at +4 offset. Only relevant if inverter has 2 MPPT strings."
+
+  - name: pv2_current
+    raw_address: 6
+    raw_address_hex: "0x0006"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "A"
+    mqtt_topic: "eg4/gridboss/pv2_current_a"
+    confidence: speculative
+
+  - name: pv2_power
+    raw_address: 7
+    raw_address_hex: "0x0007"
+    function_code: 4
+    type: uint32_hi_lo  # high word at 7, low word at 8
+    scaling: 0.1
+    unit: "W"
+    mqtt_topic: "eg4/gridboss/pv2_power_w"
+    confidence: speculative
+
+  - name: grid_voltage
+    raw_address: 9
+    raw_address_hex: "0x0009"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "V"
+    mqtt_topic: "eg4/gridboss/grid_voltage_v"
+    confidence: speculative
+    notes: "Should read ~120V (L-N) or ~240V (L-L) depending on measurement point."
+
+  - name: grid_frequency
+    raw_address: 10
+    raw_address_hex: "0x000A"
+    function_code: 4
+    type: uint16
+    scaling: 0.01
+    unit: "Hz"
+    mqtt_topic: "eg4/gridboss/grid_frequency_hz"
+    confidence: speculative
+    notes: "Should read ~6000 (raw) = 60.00 Hz for US grid."
+
+  - name: grid_power
+    raw_address: 11
+    raw_address_hex: "0x000B"
+    function_code: 4
+    type: int32_hi_lo  # SIGNED: positive = import, negative = export
+    scaling: 1.0       # verify scaling — may need 0.1 if units are 0.1W
+    unit: "W"
+    mqtt_topic: "eg4/gridboss/grid_import_export_w"
+    confidence: speculative
+    notes: >
+      Sign convention not confirmed. Some inverters: positive=export, others=import.
+      VERIFY: turn on a large known load (e.g. 1500W heater) with PV and battery off,
+      watch this register — value should increase by ~1500.
+
+  - name: load_power
+    raw_address: 17
+    raw_address_hex: "0x0011"
+    function_code: 4
+    type: uint32_hi_lo  # high word at 17, low word at 18
+    scaling: 1.0
+    unit: "W"
+    mqtt_topic: "eg4/gridboss/load_power_w"
+    confidence: speculative
+    notes: >
+      Total load/consumption power. Always positive.
+      VERIFY: toggle a known load and check this changes by the expected wattage.
+
+  - name: output_voltage
+    raw_address: 13
+    raw_address_hex: "0x000D"
+    function_code: 4
+    type: uint16
+    scaling: 0.1
+    unit: "V"
+    mqtt_topic: "eg4/gridboss/output_voltage_v"
+    confidence: speculative
+
+  - name: battery_voltage
+    raw_address: 70
+    raw_address_hex: "0x0046"
+    function_code: 4
+    type: uint16
+    scaling: 0.01
+    unit: "V"
+    mqtt_topic: "eg4/gridboss/battery_voltage_v"
+    confidence: speculative
+    notes: >
+      For a 48V LiFePO4 battery: expect 44–57V range.
+      For a 51.2V nominal system: fully charged ~57.6V, discharged ~44V.
+      VERIFY: battery_voltage should track the value shown in the app.
+
+  - name: battery_current
+    raw_address: 71
+    raw_address_hex: "0x0047"
+    function_code: 4
+    type: int16  # SIGNED: positive = charge, negative = discharge
+    scaling: 0.1
+    unit: "A"
+    mqtt_topic: "eg4/gridboss/battery_current_a"
+    confidence: speculative
+    notes: >
+      Sign convention not confirmed — may be opposite.
+      VERIFY: force charge/discharge state in app and observe sign.
+
+  - name: battery_power
+    raw_address: 74
+    raw_address_hex: "0x004A"
+    function_code: 4
+    type: int32_hi_lo  # SIGNED: positive = charge, negative = discharge
+    scaling: 1.0
+    unit: "W"
+    mqtt_topic: "eg4/gridboss/battery_power_w"
+    confidence: speculative
+    notes: >
+      May or may not exist as a separate register. Could be derived from
+      battery_voltage * battery_current in software if not present.
+
+  - name: battery_soc
+    raw_address: 103
+    raw_address_hex: "0x0067"
+    function_code: 4
+    type: uint16
+    scaling: 1.0
+    unit: "%"
+    mqtt_topic: "eg4/gridboss/battery_soc_pct"
+    confidence: speculative
+    notes: >
+      Growatt-family SOC at input[103]. Range 0–100 (raw = percent directly).
+      VERIFY: value should match the SOC shown in the EG4 app.
+      ALTERNATIVE addresses to try if 103 is wrong: 87, 168, 182, 256.
+
+  - name: battery_temperature
+    raw_address: 105
+    raw_address_hex: "0x0069"
+    function_code: 4
+    type: int16
+    scaling: 0.1
+    unit: "°C"
+    mqtt_topic: "eg4/gridboss/battery_temp_c"
+    confidence: speculative
+    notes: "May be offset-encoded (+100 offset on some devices). Verify against app."
+
+  - name: radiator_temperature
+    raw_address: 106
+    raw_address_hex: "0x006A"
+    function_code: 4
+    type: int16
+    scaling: 0.1
+    unit: "°C"
+    mqtt_topic: "eg4/gridboss/inverter_temp_c"
+    confidence: speculative
+
+# =========================================================================
+# HOLDING REGISTERS (Function Code 0x03 — config/settings, some status)
+# =========================================================================
+
+holding_registers:
+
+  - name: device_type
+    raw_address: 0
+    raw_address_hex: "0x0000"
+    function_code: 3
+    type: uint16
+    scaling: 1
+    unit: ""
+    mqtt_topic: "eg4/gridboss/device_type_code"
+    confidence: speculative
+    notes: >
+      Manufacturer-assigned device type code. Useful for verifying
+      we're talking to the right device. Compare to value in EG4 documentation.
+
+  - name: firmware_version
+    raw_address: 1
+    raw_address_hex: "0x0001"
+    function_code: 3
+    type: uint16
+    scaling: 0.01
+    unit: ""
+    mqtt_topic: "eg4/gridboss/firmware_version"
+    confidence: speculative
+
+  - name: output_mode
+    raw_address: 3
+    raw_address_hex: "0x0003"
+    function_code: 3
+    type: uint16_enum
+    scaling: 1
+    unit: ""
+    mqtt_topic: "eg4/gridboss/output_mode"
+    confidence: speculative
+    notes: >
+      Common values: 0=grid-tie, 1=off-grid, 2=backup.
+      Exact values depend on GridBOSS firmware.
+
+  - name: charge_current_limit
+    raw_address: 2,
+    raw_address_hex: "0x0002"
+    function_code: 3
+    type: uint16
+    scaling: 0.1
+    unit: "A"
+    mqtt_topic: null  # Not published to MQTT — settings data only
+    confidence: speculative
+    notes: "Settings register — read-only for our purposes. Do not write."
+
+# =========================================================================
+# UNKNOWN / TO-BE-DETERMINED
+# =========================================================================
+# These addresses exist in similar devices but have not been mapped for EG4.
+# Leave this section populated until capture analysis confirms or denies them.
+
+unknown_candidates:
+  - raw_address: 20
+    function_code: 4
+    notes: "Possibly grid import energy total (kWh). 32-bit at 20+21."
+  - raw_address: 50
+    function_code: 4
+    notes: "Some Growatt devices put daily yield kWh here."
+  - raw_address: 87
+    function_code: 4
+    notes: "Alternative SOC location seen in some EG4 18kPV variants."
+  - raw_address: 168
+    function_code: 4
+    notes: "Alternative SOC seen in EG4 6000XP-related register maps."
+
+# =========================================================================
+# DERIVED / CALCULATED FIELDS
+# =========================================================================
+# Computed in software from raw registers; not direct register reads.
+
+derived_fields:
+  - name: battery_power_derived_w
+    formula: "battery_voltage_v * battery_current_a"
+    unit: "W"
+    notes: >
+      Fallback if battery_power register (addr 74) is not present or returns
+      zero. Accuracy depends on current sign convention being correct.
+
+  - name: pv_power_total_w
+    formula: "pv1_power_w + pv2_power_w"
+    unit: "W"
+    notes: "Combined PV power across both MPPT strings, if separate."
