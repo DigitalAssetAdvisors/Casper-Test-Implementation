@@ -1,0 +1,1796 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Understanding wstDIEM Yield — A Base Yield vs. Leverage Framework</title>
+<meta name="description" content="A technical explainer separating wstDIEM's unlevered base yield from advertised leveraged-strategy APR, with a practical framework for estimating base yield over time." />
+
+<!-- Fonts: Fraunces (display serif) + Inter (body sans) -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ======================================================
+     0. RESET
+  ====================================================== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body, h1, h2, h3, h4, p, figure, blockquote, dl, dd { margin: 0; }
+  ul, ol { margin: 0; padding: 0; }
+  img, svg { display: block; max-width: 100%; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; }
+  input { font: inherit; }
+
+  /* ======================================================
+     1. DESIGN TOKENS
+  ====================================================== */
+  :root {
+    /* spacing scale — 4px base */
+    --sp-1: 4px;
+    --sp-2: 8px;
+    --sp-3: 12px;
+    --sp-4: 16px;
+    --sp-5: 20px;
+    --sp-6: 24px;
+    --sp-8: 32px;
+    --sp-10: 40px;
+    --sp-12: 48px;
+    --sp-16: 64px;
+    --sp-20: 80px;
+    --sp-24: 96px;
+    --sp-32: 128px;
+
+    /* radii */
+    --radius-sm: 3px;
+    --radius-md: 6px;
+    --radius-lg: 12px;
+
+    /* type */
+    --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", serif;
+    --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+
+    --fs-body: clamp(1rem, 0.97rem + 0.15vw, 1.0625rem);
+    --fs-small: clamp(0.8125rem, 0.8rem + 0.1vw, 0.875rem);
+    --fs-lede: clamp(1.125rem, 1.05rem + 0.4vw, 1.375rem);
+    --fs-h1: clamp(2.4rem, 1.9rem + 3vw, 4.5rem);
+    --fs-h2: clamp(1.7rem, 1.5rem + 1.3vw, 2.5rem);
+    --fs-h3: clamp(1.25rem, 1.15rem + 0.6vw, 1.6rem);
+    --fs-h4: clamp(1.05rem, 1rem + 0.3vw, 1.2rem);
+    --fs-stat: clamp(1.8rem, 1.5rem + 1.6vw, 2.75rem);
+
+    --measure: 68ch;
+
+    /* light theme (default) */
+    --bg: #f6f4ef;
+    --bg-raised: #fffefb;
+    --surface: #ffffff;
+    --surface-sunken: #eeece4;
+    --text: #171b18;
+    --text-muted: #4d564f;
+    --text-faint: #79837b;
+    --border: #dcd8cd;
+    --border-strong: #b9b3a2;
+    --accent: #0e6e63;
+    --accent-strong: #0a5750;
+    --accent-tint: #e2efec;
+    --accent-contrast: #fbfffe;
+    --warn: #8a5a20;
+    --warn-tint: #f6ecdb;
+    --danger: #8f3b2e;
+    --danger-tint: #f5e6e2;
+    --shadow-sm: 0 1px 2px rgba(23, 27, 24, 0.06), 0 1px 1px rgba(23,27,24,0.04);
+    --shadow-md: 0 6px 20px rgba(23, 27, 24, 0.08), 0 2px 6px rgba(23,27,24,0.05);
+    --code-bg: #101413;
+    --code-text: #dce7e2;
+
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1210;
+      --bg-raised: #121816;
+      --surface: #141b19;
+      --surface-sunken: #0a0f0d;
+      --text: #e9efec;
+      --text-muted: #a7b5ae;
+      --text-faint: #78877f;
+      --border: #253430;
+      --border-strong: #37493f;
+      --accent: #3fd0bb;
+      --accent-strong: #6bdfce;
+      --accent-tint: #142825;
+      --accent-contrast: #04140f;
+      --warn: #e0ac5f;
+      --warn-tint: #2a2114;
+      --danger: #e2897a;
+      --danger-tint: #2a1815;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+      --shadow-md: 0 10px 30px rgba(0,0,0,0.45);
+      --code-bg: #070b0a;
+      --code-text: #cfe6de;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1210;
+    --bg-raised: #121816;
+    --surface: #141b19;
+    --surface-sunken: #0a0f0d;
+    --text: #e9efec;
+    --text-muted: #a7b5ae;
+    --text-faint: #78877f;
+    --border: #253430;
+    --border-strong: #37493f;
+    --accent: #3fd0bb;
+    --accent-strong: #6bdfce;
+    --accent-tint: #142825;
+    --accent-contrast: #04140f;
+    --warn: #e0ac5f;
+    --warn-tint: #2a2114;
+    --danger: #e2897a;
+    --danger-tint: #2a1815;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 10px 30px rgba(0,0,0,0.45);
+    --code-bg: #070b0a;
+    --code-text: #cfe6de;
+    color-scheme: dark;
+  }
+
+  /* ======================================================
+     2. BASE
+  ====================================================== */
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: var(--fs-body);
+    line-height: 1.6;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+
+  main { display: block; }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: 1.12;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  h1 { font-size: var(--fs-h1); font-weight: 600; }
+  h2 { font-size: var(--fs-h2); }
+  h3 { font-size: var(--fs-h3); }
+  h4 { font-size: var(--fs-h4); font-family: var(--font-body); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: var(--fs-small); color: var(--text-muted); }
+
+  p { color: var(--text); }
+  p + p { margin-top: var(--sp-4); }
+
+  .prose { max-width: var(--measure); }
+  .prose p, .prose ul, .prose ol { color: var(--text-muted); }
+  .prose p + p, .prose ul + p, .prose p + ul { margin-top: var(--sp-4); }
+  .prose strong { color: var(--text); font-weight: 600; }
+  .prose ul { padding-left: 1.3em; }
+  .prose li + li { margin-top: var(--sp-2); }
+  .prose a { color: var(--accent-strong); text-underline-offset: 3px; }
+
+  .lede {
+    font-size: var(--fs-lede);
+    color: var(--text-muted);
+    font-weight: 400;
+    max-width: 62ch;
+  }
+
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  input:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2.5px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection { background: var(--accent); color: var(--accent-contrast); }
+
+  /* ======================================================
+     3. LAYOUT PRIMITIVES
+  ====================================================== */
+  .wrap {
+    width: 100%;
+    max-width: 1180px;
+    margin-inline: auto;
+    padding-inline: var(--sp-6);
+  }
+  @media (min-width: 900px) {
+    .wrap { padding-inline: var(--sp-10); }
+  }
+
+  section { padding-block: var(--sp-20); border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-4);
+    margin-bottom: var(--sp-12);
+  }
+  @media (min-width: 900px) {
+    .section-head--split {
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+      gap: var(--sp-16);
+      align-items: end;
+    }
+  }
+
+  .kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-family: var(--font-mono);
+    font-size: var(--fs-small);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+  }
+  .kicker::before {
+    content: "";
+    width: 18px;
+    height: 1.5px;
+    background: var(--accent);
+    display: inline-block;
+  }
+
+  .grid-12 { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--sp-8); }
+  @media (max-width: 899px) {
+    .grid-12 { grid-template-columns: 1fr; }
+  }
+
+  /* prevent grid/flex children with wide intrinsic content (tables, code) from
+     forcing horizontal page overflow — let their own overflow-x:auto handle it */
+  .grid-12 > *, .asymmetric > *, .hero__grid > *, .compare > *,
+  .footer-grid > *, .section-head--split > *, .calc > * {
+    min-width: 0;
+  }
+
+  /* reveal-on-scroll */
+  .reveal { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .reveal.is-visible { opacity: 1; transform: none; }
+  }
+
+  /* ======================================================
+     4. HEADER / NAV
+  ====================================================== */
+  .progress-bar {
+    position: fixed;
+    top: 0; left: 0;
+    height: 2.5px;
+    width: 0%;
+    background: var(--accent);
+    z-index: 100;
+    transition: width 0.1s linear;
+  }
+
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(140%) blur(10px);
+    -webkit-backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-3);
+    padding-block: var(--sp-3);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.05rem;
+    text-decoration: none;
+    white-space: nowrap;
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+  }
+  .brand svg { width: 26px; height: 26px; flex-shrink: 0; }
+  .brand small { display: block; font-family: var(--font-body); font-weight: 500; font-size: 0.65rem; letter-spacing: 0.04em; color: var(--text-faint); text-transform: uppercase; }
+  @media (max-width: 480px) {
+    .brand small { display: none; }
+  }
+
+  .primary-nav { display: none; }
+  @media (min-width: 1050px) {
+    .primary-nav {
+      display: flex;
+      gap: var(--sp-5);
+      list-style: none;
+      overflow-x: auto;
+    }
+    .primary-nav a {
+      font-size: 0.86rem;
+      text-decoration: none;
+      color: var(--text-muted);
+      white-space: nowrap;
+      padding-block: var(--sp-1);
+      border-bottom: 1.5px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .primary-nav a:hover, .primary-nav a:focus-visible { color: var(--text); border-color: var(--accent); }
+  }
+
+  .header-actions { display: flex; align-items: center; gap: var(--sp-3); flex-shrink: 0; }
+
+  .nav-toggle {
+    display: inline-flex;
+    min-width: 44px; min-height: 44px;
+    align-items: center; justify-content: center;
+    background: none; border: 1px solid var(--border); border-radius: var(--radius-md);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  @media (min-width: 1050px) { .nav-toggle { display: none; } }
+
+  .mobile-nav {
+    display: none;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+  .mobile-nav.is-open { display: block; }
+  .mobile-nav ul { list-style: none; padding: var(--sp-4) var(--sp-6) var(--sp-6); display: grid; gap: var(--sp-1); }
+  .mobile-nav a { display: block; padding: var(--sp-3) var(--sp-2); text-decoration: none; color: var(--text-muted); min-height: 44px; display:flex; align-items:center; border-radius: var(--radius-sm); }
+  .mobile-nav a:hover { background: var(--surface-sunken); color: var(--text); }
+  @media (min-width: 1050px) { .mobile-nav { display: none !important; } }
+
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 44px; min-height: 44px;
+    padding-inline: var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    cursor: pointer;
+    font-size: var(--fs-small);
+  }
+  .theme-toggle:hover { border-color: var(--border-strong); }
+  .theme-toggle svg { width: 16px; height: 16px; flex-shrink: 0; }
+  @media (max-width: 400px) {
+    .theme-toggle { padding-inline: 0; width: 44px; justify-content: center; }
+    .theme-toggle #themeLabel { display: none; }
+  }
+
+  /* ======================================================
+     5. BUTTONS / CHIPS
+  ====================================================== */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    min-height: 44px;
+    padding: var(--sp-3) var(--sp-6);
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.95rem;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn--primary { background: var(--accent); color: var(--accent-contrast); border-color: var(--accent); }
+  .btn--primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  .btn--ghost { background: transparent; color: var(--text); border-color: var(--border-strong); }
+  .btn--ghost:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .btn--sm { min-height: 36px; padding: var(--sp-2) var(--sp-4); font-size: 0.82rem; }
+
+  .cta-row { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-top: var(--sp-8); }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 32px;
+    padding: var(--sp-1) var(--sp-3);
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    font-weight: 600;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .copy-btn:hover { color: var(--accent-strong); border-color: var(--accent); }
+  .copy-btn svg { width: 12px; height: 12px; }
+  .copy-btn[data-copied="true"] { color: var(--accent-strong); border-color: var(--accent); }
+
+  /* ======================================================
+     6. HERO
+  ====================================================== */
+  .hero {
+    padding-top: var(--sp-16);
+    padding-bottom: var(--sp-20);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+  .hero__grid {
+    display: grid;
+    gap: var(--sp-12);
+  }
+  @media (min-width: 980px) {
+    .hero__grid { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); align-items: center; }
+  }
+  .hero h1 { margin-top: var(--sp-4); max-width: 15ch; }
+  .hero .lede { margin-top: var(--sp-5); }
+
+  .hero-diagram-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--sp-6);
+    box-shadow: var(--shadow-md);
+  }
+  .hero-diagram-card figcaption {
+    margin-top: var(--sp-4);
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+    border-top: 1px solid var(--border);
+    padding-top: var(--sp-3);
+  }
+
+  /* ======================================================
+     7. DIAGRAM COMMON STYLES
+  ====================================================== */
+  .diagram-node text { font-family: var(--font-body); }
+  .diagram text.label-title { font-weight: 700; }
+  .diagram text.label-sub { font-size: 10.5px; }
+
+  /* ======================================================
+     8. CALLOUTS
+  ====================================================== */
+  .callout {
+    border-radius: var(--radius-lg);
+    padding: var(--sp-6);
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .callout--accent { border-color: var(--accent); background: var(--accent-tint); }
+  .callout--warn { border-color: var(--warn); background: var(--warn-tint); }
+  .callout--danger { border-color: var(--danger); background: var(--danger-tint); }
+  .callout h3, .callout h4 { margin-bottom: var(--sp-2); }
+  .callout p { color: var(--text-muted); }
+  .callout--accent h3 { color: var(--accent-strong); }
+
+  .misconception {
+    margin-top: var(--sp-10);
+    display: grid;
+    gap: var(--sp-4);
+    grid-template-columns: auto 1fr;
+    align-items: start;
+    padding: var(--sp-6) var(--sp-6) var(--sp-6) var(--sp-5);
+    border-left: 3px solid var(--accent);
+    background: var(--accent-tint);
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  }
+  .misconception svg { width: 22px; height: 22px; color: var(--accent-strong); margin-top: 3px; }
+  .misconception strong { display: block; color: var(--text); font-size: 1.02rem; margin-bottom: var(--sp-1); }
+
+  /* ======================================================
+     9. COMPARISON TABLE / SIDE-BY-SIDE
+  ====================================================== */
+  .compare {
+    display: grid;
+    gap: var(--sp-6);
+    margin-top: var(--sp-10);
+  }
+  @media (min-width: 860px) {
+    .compare { grid-template-columns: 1fr 1fr; }
+  }
+  .compare-card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    padding: var(--sp-8);
+    display: flex; flex-direction: column;
+  }
+  .compare-card--flag { border-color: var(--accent); position: relative; }
+  .compare-card__badge {
+    display: inline-flex; align-self: flex-start;
+    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: var(--sp-1) var(--sp-2); border-radius: var(--radius-sm);
+    background: var(--surface-sunken); color: var(--text-muted); margin-bottom: var(--sp-4);
+  }
+  .compare-card--flag .compare-card__badge { background: var(--accent); color: var(--accent-contrast); }
+  .compare-card h3 { margin-bottom: var(--sp-3); }
+  .compare-card ul { list-style: none; display: grid; gap: var(--sp-3); margin-top: var(--sp-5); }
+  .compare-card li { display: flex; gap: var(--sp-3); font-size: 0.92rem; color: var(--text-muted); }
+  .compare-card li svg { width: 15px; height: 15px; flex-shrink: 0; margin-top: 4px; color: var(--accent-strong); }
+  .compare-card__stat { margin-top: auto; padding-top: var(--sp-6); border-top: 1px solid var(--border); }
+  .compare-card__stat .num { font-family: var(--font-display); font-size: var(--fs-stat); font-weight: 600; color: var(--text); }
+  .compare-card__stat .cap { font-size: var(--fs-small); color: var(--text-faint); }
+
+  /* ======================================================
+     10. FORMULA BLOCKS
+  ====================================================== */
+  .formula-block {
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: var(--sp-5) var(--sp-6);
+    margin-top: var(--sp-6);
+  }
+  .formula-block__top { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); margin-bottom: var(--sp-3); }
+  .formula-block__label { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #8fb3aa; }
+  .formula-block code {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.98rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    color: var(--code-text);
+  }
+  .formula-block .copy-btn { border-color: #345a51; color: #a9c9c0; }
+  .formula-block .copy-btn:hover { color: var(--accent-strong); border-color: var(--accent-strong); }
+  .formula-caption { margin-top: var(--sp-3); font-size: var(--fs-small); color: var(--text-faint); max-width: 60ch; }
+
+  /* ======================================================
+     11. FULL WIDTH BAND
+  ====================================================== */
+  .band {
+    background: var(--surface-sunken);
+    border-bottom: 1px solid var(--border);
+    padding-block: var(--sp-20);
+  }
+  .band .section-head { margin-bottom: var(--sp-10); }
+
+  /* ======================================================
+     12. TIMELINE
+  ====================================================== */
+  .timeline {
+    display: grid;
+    gap: var(--sp-6);
+    margin-top: var(--sp-10);
+    counter-reset: tl;
+  }
+  @media (min-width: 860px) {
+    .timeline { grid-template-columns: repeat(4, 1fr); gap: var(--sp-4); }
+  }
+  .timeline-step {
+    counter-increment: tl;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    padding: var(--sp-5);
+    position: relative;
+  }
+  .timeline-step::before {
+    content: counter(tl, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--accent-strong);
+    display: block;
+    margin-bottom: var(--sp-3);
+  }
+  .timeline-step h4 { color: var(--text); text-transform: none; font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; letter-spacing: normal; margin-bottom: var(--sp-2); }
+  .timeline-step p { font-size: 0.88rem; color: var(--text-muted); }
+  @media (min-width: 860px) {
+    .timeline-step:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -18px; top: var(--sp-5);
+      width: 14px; height: 1px;
+      background: var(--border-strong);
+    }
+  }
+
+  /* ======================================================
+     13. ASYMMETRIC LAYOUT (methodology section)
+  ====================================================== */
+  .asymmetric {
+    display: grid;
+    gap: var(--sp-10);
+  }
+  @media (min-width: 980px) {
+    .asymmetric { grid-template-columns: minmax(0,0.62fr) minmax(0,0.38fr); }
+  }
+  .side-note {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--sp-6);
+    align-self: start;
+    position: sticky;
+    top: 90px;
+  }
+  .side-note h4 { margin-bottom: var(--sp-3); }
+  .side-note ol { padding-left: 1.15em; display: grid; gap: var(--sp-3); }
+  .side-note li { font-size: 0.9rem; color: var(--text-muted); }
+  .side-note li::marker { color: var(--accent-strong); font-weight: 700; }
+
+  /* ======================================================
+     14. WORKED EXAMPLE TABLE
+  ====================================================== */
+  .table-scroll { overflow-x: auto; margin-top: var(--sp-6); border: 1px solid var(--border); border-radius: var(--radius-md); }
+  table { width: 100%; border-collapse: collapse; min-width: 560px; font-size: 0.9rem; }
+  thead th {
+    text-align: left; font-family: var(--font-mono); font-weight: 600; font-size: 0.72rem;
+    text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint);
+    background: var(--surface-sunken); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border);
+  }
+  tbody td { padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--border); color: var(--text-muted); background: var(--surface); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody td:first-child { color: var(--text); font-weight: 500; }
+  td.num, th.num { text-align: right; font-family: var(--font-mono); }
+  .tag-conceptual, .tag-live {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.65rem; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 3px; letter-spacing: 0.04em; margin-left: var(--sp-2);
+  }
+  .tag-conceptual { background: var(--accent-tint); color: var(--accent-strong); }
+  .tag-live { background: var(--warn-tint); color: var(--warn); }
+
+  /* ======================================================
+     15. DATA SOURCES LIST
+  ====================================================== */
+  .source-list { display: grid; gap: 1px; margin-top: var(--sp-10); background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .source-row { background: var(--surface); padding: var(--sp-6); display: grid; gap: var(--sp-4); grid-template-columns: 1fr; }
+  @media (min-width: 780px) {
+    .source-row { grid-template-columns: 0.32fr 0.44fr 0.24fr; align-items: center; }
+  }
+  .source-row h4 { color: var(--text); text-transform: none; font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; letter-spacing: normal; }
+  .source-row p { font-size: 0.88rem; color: var(--text-muted); }
+  .source-row .placeholder-link {
+    justify-self: start;
+    display: inline-flex; align-items: center; gap: var(--sp-2);
+    font-size: 0.82rem; text-decoration: none; color: var(--text-faint);
+    border: 1px dashed var(--border-strong); padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm);
+    min-height: 40px;
+  }
+  @media (min-width: 780px) { .source-row .placeholder-link { justify-self: end; } }
+  .source-row .placeholder-link:hover { color: var(--accent-strong); border-color: var(--accent); border-style: solid; }
+  .source-row .placeholder-link svg { width: 13px; height: 13px; }
+
+  /* ======================================================
+     16. RISK GRID
+  ====================================================== */
+  .risk-list { display: grid; gap: var(--sp-1); margin-top: var(--sp-10); }
+  .risk-row {
+    display: grid; gap: var(--sp-2) var(--sp-6);
+    grid-template-columns: 1fr;
+    padding: var(--sp-6) var(--sp-2);
+    border-top: 1px solid var(--border);
+  }
+  .risk-list .risk-row:last-child { border-bottom: 1px solid var(--border); }
+  @media (min-width: 820px) {
+    .risk-row { grid-template-columns: 240px 1fr; align-items: baseline; }
+  }
+  .risk-row .risk-name { display: flex; align-items: center; gap: var(--sp-3); font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; }
+  .risk-row .risk-index { font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-strong); }
+  .risk-row p { color: var(--text-muted); font-size: 0.92rem; max-width: 68ch; }
+
+  /* ======================================================
+     17. FAQ
+  ====================================================== */
+  .faq-list { margin-top: var(--sp-10); border-top: 1px solid var(--border); }
+  .faq-item { border-bottom: 1px solid var(--border); }
+  .faq-item summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
+    padding: var(--sp-6) var(--sp-2);
+    font-family: var(--font-display); font-weight: 600; font-size: 1.05rem;
+    min-height: 44px;
+  }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary .plus { flex-shrink: 0; width: 22px; height: 22px; position: relative; }
+  .faq-item summary .plus::before, .faq-item summary .plus::after {
+    content: ""; position: absolute; background: var(--accent-strong); top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+  }
+  .faq-item summary .plus::before { width: 14px; height: 2px; }
+  .faq-item summary .plus::after { width: 2px; height: 14px; transition: transform 0.2s ease; }
+  .faq-item[open] summary .plus::after { transform: translate(-50%,-50%) rotate(90deg) scaleY(0); }
+  .faq-item .faq-answer { padding: 0 var(--sp-2) var(--sp-6); color: var(--text-muted); max-width: 68ch; font-size: 0.95rem; }
+
+  /* ======================================================
+     18. CALCULATOR
+  ====================================================== */
+  .calc {
+    display: grid; gap: var(--sp-10);
+    margin-top: var(--sp-10);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    padding: var(--sp-8);
+  }
+  @media (min-width: 900px) { .calc { grid-template-columns: 1fr 1fr; padding: var(--sp-10); } }
+  .calc-field { display: grid; gap: var(--sp-2); margin-bottom: var(--sp-6); }
+  .calc-field label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; }
+  .calc-field label output { font-family: var(--font-mono); color: var(--accent-strong); font-weight: 700; }
+  .calc-field input[type="range"] {
+    width: 100%; accent-color: var(--accent); height: 44px; cursor: pointer; background: transparent;
+  }
+  .calc-results { background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--sp-6); align-self: start; }
+  .calc-result-row { display: flex; align-items: baseline; justify-content: space-between; padding-block: var(--sp-3); border-bottom: 1px solid var(--border); }
+  .calc-result-row:last-child { border-bottom: none; }
+  .calc-result-row .rlabel { font-size: 0.85rem; color: var(--text-muted); }
+  .calc-result-row .rvalue { font-family: var(--font-mono); font-size: 1.3rem; font-weight: 600; color: var(--text); }
+  .calc-result-row.highlight .rvalue { color: var(--accent-strong); }
+  .calc-disclaimer {
+    margin-top: var(--sp-6); font-size: 0.78rem; color: var(--text-faint);
+    border-top: 1px dashed var(--border-strong); padding-top: var(--sp-4);
+  }
+
+  /* ======================================================
+     19. CHECKLIST DOWNLOAD PANEL
+  ====================================================== */
+  .checklist-panel {
+    margin-top: var(--sp-10);
+    display: grid; gap: var(--sp-6);
+    grid-template-columns: 1fr;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: var(--sp-8);
+    background: linear-gradient(180deg, var(--surface) 0%, var(--surface) 100%);
+  }
+  @media (min-width: 860px) { .checklist-panel { grid-template-columns: 1.3fr 0.7fr; align-items: center; } }
+  .checklist-panel ul { list-style: none; display: grid; gap: var(--sp-2); margin-top: var(--sp-4); }
+  .checklist-panel li { font-size: 0.88rem; color: var(--text-muted); display: flex; gap: var(--sp-2); }
+  .checklist-panel li::before { content: "—"; color: var(--accent-strong); flex-shrink: 0; }
+  .checklist-download { text-align: left; }
+  @media (min-width: 860px) { .checklist-download { text-align: right; } }
+
+  /* ======================================================
+     20. FOOTER
+  ====================================================== */
+  footer.site-footer { padding-block: var(--sp-16); background: var(--surface-sunken); }
+  .footer-grid { display: grid; gap: var(--sp-10); }
+  @media (min-width: 860px) { .footer-grid { grid-template-columns: 1.2fr 1fr 1fr; } }
+  .footer-grid h4 { margin-bottom: var(--sp-4); }
+  .footer-grid ul { list-style: none; display: grid; gap: var(--sp-2); }
+  .footer-grid a { text-decoration: none; color: var(--text-muted); font-size: 0.88rem; }
+  .footer-grid a:hover { color: var(--accent-strong); }
+  .footer-brand { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-4); font-family: var(--font-display); font-weight: 600; }
+  .footer-brand svg { width: 22px; height: 22px; }
+  .footer-note {
+    margin-top: var(--sp-12); padding-top: var(--sp-8); border-top: 1px solid var(--border);
+    font-size: 0.8rem; color: var(--text-faint); max-width: 75ch;
+  }
+  .footer-legal { margin-top: var(--sp-6); font-size: 0.75rem; color: var(--text-faint); display: flex; flex-wrap: wrap; gap: var(--sp-4); justify-content: space-between; }
+
+  /* ======================================================
+     21. UTILITIES
+  ====================================================== */
+  .visually-hidden {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+  .skip-link {
+    position: absolute; left: var(--sp-4); top: -60px; z-index: 200;
+    background: var(--accent); color: var(--accent-contrast); padding: var(--sp-3) var(--sp-5);
+    border-radius: var(--radius-md); text-decoration: none; transition: top 0.2s ease;
+  }
+  .skip-link:focus { top: var(--sp-4); }
+
+  .stack { display: grid; gap: var(--sp-8); }
+  .mt-0 { margin-top: 0 !important; }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- ============================================================
+     HEADER
+============================================================ -->
+<header class="site-header">
+  <div class="wrap site-header__inner">
+    <a class="brand" href="#top">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <circle cx="16" cy="16" r="14.5" stroke="var(--accent)" stroke-width="1.4"/>
+        <path d="M8 13.5L12.5 22L16 15L19.5 22L24 13.5" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M8 13.5C8 10 11.5 8 16 8C20.5 8 24 10 24 13.5" stroke="var(--text-faint)" stroke-width="1.2" stroke-linecap="round" fill="none"/>
+      </svg>
+      <span>wstDIEM Yield<small>Research note · unlevered framework</small></span>
+    </a>
+
+    <nav class="primary-nav" aria-label="Primary">
+      <a href="#what-is">What it is</a>
+      <a href="#yield-sources">Yield sources</a>
+      <a href="#unlevered-vs-leveraged">Unlevered vs. leveraged</a>
+      <a href="#no-chart">Why no chart</a>
+      <a href="#estimation">Estimation</a>
+      <a href="#data-sources">Data sources</a>
+      <a href="#risks">Risks</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+
+    <div class="header-actions">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">
+        <svg id="themeIconSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8" stroke-linecap="round"/></svg>
+        <span id="themeLabel">Light</span>
+      </button>
+      <button class="nav-toggle" id="navToggle" type="button" aria-expanded="false" aria-controls="mobileNav" aria-label="Open navigation">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="mobile-nav" id="mobileNav">
+    <ul>
+      <li><a href="#what-is">What wstDIEM is</a></li>
+      <li><a href="#yield-sources">Yield sources</a></li>
+      <li><a href="#unlevered-vs-leveraged">Unlevered vs. leveraged</a></li>
+      <li><a href="#no-chart">Why no simple chart exists</a></li>
+      <li><a href="#estimation">Estimating yield over time</a></li>
+      <li><a href="#data-sources">Data sources</a></li>
+      <li><a href="#risks">Risk and caveats</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============================================================
+     HERO
+============================================================ -->
+<section class="hero" id="top">
+  <div class="wrap hero__grid">
+    <div>
+      <span class="kicker">Base yield vs. leverage · a reading guide</span>
+      <h1>Understanding wstDIEM Yield</h1>
+      <p class="lede">
+        This note separates two things that public commentary often blurs together: the
+        unlevered base yield of holding wrapped, staked DIEM, and the much larger APR figures
+        produced by leveraged lending-loop strategies built on top of it. It is written for
+        readers who already understand staking, wrapped tokens, and lending markets, and want
+        a framework — not a headline number.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn--primary" href="#yield-sources">See yield mechanics</a>
+        <a class="btn btn--ghost" href="#unlevered-vs-leveraged">View unlevered framework</a>
+      </div>
+    </div>
+
+    <figure class="hero-diagram-card reveal">
+      <svg class="diagram" viewBox="0 0 480 300" width="100%" role="img" aria-labelledby="heroDiagramTitle heroDiagramDesc">
+        <title id="heroDiagramTitle">DIEM to wstDIEM flow, with optional leverage loop</title>
+        <desc id="heroDiagramDesc">DIEM is staked to become staked DIEM, which is wrapped into wstDIEM. From wstDIEM, holders may optionally enter a leverage loop by depositing it as collateral, borrowing, and buying more wstDIEM.</desc>
+
+        <!-- base path -->
+        <g class="diagram-node" font-size="12" fill="var(--text)">
+          <!-- DIEM -->
+          <rect x="10" y="24" width="100" height="52" rx="8" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+          <text x="60" y="46" text-anchor="middle" class="label-title">DIEM</text>
+          <text x="60" y="62" text-anchor="middle" class="label-sub" fill="var(--text-faint)">Base asset</text>
+
+          <path d="M112 50 H150" stroke="var(--text-faint)" stroke-width="1.4" marker-end="url(#arrow1)"/>
+
+          <!-- staked DIEM -->
+          <rect x="152" y="24" width="112" height="52" rx="8" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+          <text x="208" y="46" text-anchor="middle" class="label-title">Staked DIEM</text>
+          <text x="208" y="62" text-anchor="middle" class="label-sub" fill="var(--text-faint)">Locked / staked</text>
+
+          <path d="M266 50 H304" stroke="var(--accent)" stroke-width="1.6" marker-end="url(#arrow2)"/>
+
+          <!-- wstDIEM -->
+          <rect x="306" y="18" width="164" height="64" rx="8" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.4"/>
+          <text x="388" y="44" text-anchor="middle" class="label-title" fill="var(--accent-strong)">wstDIEM</text>
+          <text x="388" y="60" text-anchor="middle" class="label-sub" fill="var(--accent-strong)">Yield-bearing wrapper</text>
+          <text x="388" y="74" text-anchor="middle" class="label-sub" fill="var(--accent-strong)" font-style="italic">base / unlevered layer</text>
+        </g>
+
+        <!-- divider -->
+        <line x1="10" y1="112" x2="470" y2="112" stroke="var(--border)" stroke-dasharray="2 4"/>
+        <text x="10" y="132" font-size="10.5" fill="var(--text-faint)" letter-spacing="0.04em">OPTIONAL — ADDS LEVERAGE, NOT BASE YIELD</text>
+
+        <!-- leverage loop -->
+        <g font-size="11.5" fill="var(--text)">
+          <rect x="30" y="150" width="120" height="46" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+          <text x="90" y="178" text-anchor="middle">Deposit wstDIEM</text>
+
+          <path d="M152 173 H196" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#arrow1)"/>
+
+          <rect x="198" y="150" width="120" height="46" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+          <text x="258" y="178" text-anchor="middle">Borrow against it</text>
+
+          <path d="M320 173 H364" stroke="var(--text-faint)" stroke-width="1.3" marker-end="url(#arrow1)"/>
+
+          <rect x="330" y="150" width="120" height="46" rx="7" fill="var(--surface)" stroke="var(--border-strong)" transform="translate(20,0)"/>
+          <text x="410" y="178" text-anchor="middle">Buy more wstDIEM</text>
+
+          <path d="M410 196 C410 226 90 226 90 196" fill="none" stroke="var(--text-faint)" stroke-width="1.3" stroke-dasharray="3 3" marker-end="url(#arrow1)"/>
+          <text x="250" y="240" text-anchor="middle" font-size="10.5" fill="var(--text-faint)">repeat = leveraged loop → higher advertised APR</text>
+        </g>
+
+        <text x="10" y="270" font-size="10" fill="var(--text-faint)">Rows above the dashed line: unlevered exposure. Rows below: strategy-level leverage.</text>
+
+        <defs>
+          <marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+          <marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--accent)"/></marker>
+        </defs>
+      </svg>
+      <figcaption>Figure 1 — DIEM becomes staked DIEM, which is wrapped as wstDIEM. Everything below the dashed line is an optional, separately-risked leverage strategy layered on top.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============================================================
+     1. WHAT WSTDIEM IS
+============================================================ -->
+<section id="what-is">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">01 — Definition</span>
+        <h2>What wstDIEM is</h2>
+      </div>
+      <p class="lede">A wrapped, yield-bearing representation of staked DIEM — closer to an accruing share than a bond.</p>
+    </div>
+
+    <div class="grid-12 reveal">
+      <div class="prose" style="grid-column: span 7;">
+        <p>
+          wstDIEM ("wrapped, staked DIEM") is a token that represents a claim on staked DIEM plus the
+          value that accrues to it over time. Functionally it behaves like other liquid-staking wrapper
+          designs used across proof-of-stake and staking-adjacent ecosystems: DIEM is staked, the staked
+          position is represented by a wrapper token, and instead of the wrapper's balance increasing
+          in your wallet, the <strong>exchange rate</strong> between wstDIEM and the underlying staked
+          asset drifts upward as value accrues.
+        </p>
+        <p>
+          That distinction matters. A fixed-coupon instrument pays a stated rate on a fixed schedule.
+          wstDIEM does not work that way. Holders are exposed to whatever the underlying staking,
+          protocol-fee, and ecosystem-activity income actually generates over a given period — which
+          means the realized yield is <strong>variable</strong>, path-dependent, and only knowable in
+          arrears, not promised in advance.
+        </p>
+        <p>
+          Public protocol materials and community discussion describe value accrual as tied to DIEM
+          ecosystem activity — including staking rewards, protocol fee flows, and revenue attributed to
+          AI compute or inference-related monetization — rather than to a simple, fixed emissions
+          schedule. That framing is why this note treats wstDIEM as an <strong>accrual instrument</strong>,
+          not a yield-paying account.
+        </p>
+      </div>
+
+      <aside style="grid-column: span 5;">
+        <div class="callout callout--accent">
+          <h3>The core distinction</h3>
+          <p>
+            Holding wstDIEM directly is <strong>not</strong> the same as receiving a cash interest
+            payment. There is no coupon deposited to your wallet. Instead, the wrapper's value relative
+            to the underlying staked asset is expected to increase over time, and that increase — annualized —
+            is what this note calls the <strong>unlevered base yield</strong>.
+          </p>
+        </div>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     2. YIELD SOURCES (full-width band + diagram)
+============================================================ -->
+<section id="yield-sources" class="band">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">02 — Mechanics</span>
+        <h2>Where the base yield comes from</h2>
+      </div>
+      <p class="lede">Four components feed the wrapper's exchange-rate drift. None of them is a fixed schedule.</p>
+    </div>
+
+    <div class="grid-12 reveal" style="align-items: start;">
+      <div style="grid-column: span 5;">
+        <div class="prose">
+          <p>
+            Rather than a single "yield," think of wstDIEM's accrual as a composite of income streams
+            that are aggregated at the protocol level and reflected, over time, in the staked-DIEM-to-wstDIEM
+            exchange rate:
+          </p>
+          <ul>
+            <li><strong>Underlying DIEM staking / protocol income</strong> — the base reward stream paid
+              for staking or securing the network, analogous to validator or staking rewards in other
+              proof-of-stake systems.</li>
+            <li><strong>Fee flows and monetization</strong> — protocol-level fees generated by usage of
+              the DIEM ecosystem, including fees described in public materials as tied to AI compute or
+              inference activity, which are routed back toward stakers and the wrapper rather than paid
+              out as a separate token emission.</li>
+            <li><strong>Credit and ecosystem-specific mechanics</strong> — flows involving related assets
+              such as creditDIEM, where protocol documentation describes routing between DIEM, creditDIEM,
+              and wstDIEM as part of how value moves through the system.</li>
+            <li><strong>Market-driven variability</strong> — usage, demand, and fee volume are not
+              constant, so the rate of accrual should be expected to fluctuate period to period rather
+              than hold a stable annualized figure.</li>
+          </ul>
+          <p>
+            Because these four inputs move independently, the resulting base yield is best understood
+            as a <strong>range over time</strong>, estimated retrospectively, rather than a single figure
+            fixed in advance.
+          </p>
+        </div>
+      </div>
+
+      <div style="grid-column: span 7;">
+        <figure class="hero-diagram-card">
+          <svg class="diagram" viewBox="0 0 480 320" width="100%" role="img" aria-labelledby="yieldDiagramTitle">
+            <title id="yieldDiagramTitle">Yield sources flowing into wstDIEM accrual</title>
+            <g font-size="11.5" fill="var(--text)">
+              <rect x="10" y="10" width="200" height="42" rx="7" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+              <text x="110" y="35" text-anchor="middle">Staking / protocol income</text>
+
+              <rect x="10" y="64" width="200" height="42" rx="7" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+              <text x="110" y="89" text-anchor="middle">Fee flows &amp; monetization</text>
+
+              <rect x="10" y="118" width="200" height="42" rx="7" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+              <text x="110" y="143" text-anchor="middle">Credit / ecosystem mechanics</text>
+
+              <rect x="10" y="172" width="200" height="42" rx="7" fill="var(--surface-sunken)" stroke="var(--border-strong)"/>
+              <text x="110" y="197" text-anchor="middle">Market-driven variability</text>
+
+              <path d="M212 31 C 260 31, 260 100, 300 100" fill="none" stroke="var(--text-faint)" stroke-width="1.2"/>
+              <path d="M212 85 C 260 85, 260 100, 300 100" fill="none" stroke="var(--text-faint)" stroke-width="1.2"/>
+              <path d="M212 139 C 260 139, 260 108, 300 108" fill="none" stroke="var(--text-faint)" stroke-width="1.2"/>
+              <path d="M212 193 C 260 193, 260 108, 300 108" fill="none" stroke="var(--text-faint)" stroke-width="1.2" marker-end="url(#arrow3)"/>
+
+              <rect x="302" y="66" width="168" height="80" rx="9" fill="var(--accent-tint)" stroke="var(--accent)" stroke-width="1.4"/>
+              <text x="386" y="98" text-anchor="middle" font-weight="700" fill="var(--accent-strong)">wstDIEM</text>
+              <text x="386" y="116" text-anchor="middle" font-size="10.5" fill="var(--accent-strong)">exchange-rate</text>
+              <text x="386" y="130" text-anchor="middle" font-size="10.5" fill="var(--accent-strong)">drift (accrual)</text>
+
+              <path d="M386 146 V 190" stroke="var(--accent)" stroke-width="1.4" marker-end="url(#arrow2)"/>
+              <rect x="296" y="192" width="180" height="46" rx="7" fill="var(--surface)" stroke="var(--border-strong)"/>
+              <text x="386" y="214" text-anchor="middle" font-size="11">Unlevered base yield</text>
+              <text x="386" y="229" text-anchor="middle" font-size="10" fill="var(--text-faint)">(annualized, observed)</text>
+            </g>
+            <defs>
+              <marker id="arrow3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--text-faint)"/></marker>
+            </defs>
+          </svg>
+          <figcaption>Figure 2 — Four independent inputs aggregate into a single observable: the exchange-rate drift between staked DIEM and wstDIEM.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     3. UNLEVERED VS LEVERAGED — the core section
+============================================================ -->
+<section id="unlevered-vs-leveraged">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">03 — The central distinction</span>
+        <h2>Unlevered vs. leveraged yield</h2>
+      </div>
+      <p class="lede">Most advertised APR figures describe a strategy's output, not the asset's native yield. This is the single most important idea on this page.</p>
+    </div>
+
+    <div class="misconception reveal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 9v4M12 16.5h.01M10.3 3.6L2.7 17a1.8 1.8 0 0 0 1.55 2.7h15.5A1.8 1.8 0 0 0 21.3 17L13.7 3.6a1.8 1.8 0 0 0-3.4 0Z" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <div>
+        <strong>Common misunderstanding</strong>
+        <p style="color: var(--text-muted); margin: 0;">
+          A large APR shown in a screenshot or thread is almost always the <strong>output of a strategy</strong> —
+          typically a lending loop applied to wstDIEM — and not the asset-native, unlevered yield of simply
+          holding the token. Strategy APR and base yield are different measurements answering different questions.
+        </p>
+      </div>
+    </div>
+
+    <div class="compare reveal">
+      <div class="compare-card">
+        <span class="compare-card__badge">Unlevered</span>
+        <h3>Holding wstDIEM directly</h3>
+        <p class="prose" style="color: var(--text-muted); font-size: 0.92rem;">
+          Buy wstDIEM and hold it. No borrowing, no collateralization, no liquidation exposure. Return is
+          whatever the underlying accrual mechanism produces over the holding period, expressed as the
+          change in the wstDIEM-to-DIEM exchange rate.
+        </p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> No liquidation risk from the position itself</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> Return equals ecosystem-driven base accrual</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> No exposure to borrow-rate volatility</li>
+        </ul>
+        <div class="compare-card__stat">
+          <div class="num">1.0×</div>
+          <div class="cap">exposure — this is the reference yield everything else is measured against</div>
+        </div>
+      </div>
+
+      <div class="compare-card compare-card--flag">
+        <span class="compare-card__badge">Leveraged</span>
+        <h3>Lending-loop strategy</h3>
+        <p class="prose" style="color: var(--text-muted); font-size: 0.92rem;">
+          Deposit wstDIEM as collateral, borrow against it, use the borrowed funds to buy more wstDIEM,
+          redeposit, and repeat. Public discussion has referenced loop strategies reaching roughly
+          <strong>4.4× exposure</strong>. The advertised APR scales with exposure, minus borrow cost —
+          but so does the risk.
+        </p>
+        <ul>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> Amplifies base yield by the leverage multiple</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> Introduces borrow-cost drag and rate variability</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg> Adds liquidation risk if collateral value falls or borrow rates spike</li>
+        </ul>
+        <div class="compare-card__stat">
+          <div class="num">~4.4×</div>
+          <div class="cap">exposure referenced in public discussion — a strategy parameter, not a protocol constant</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="prose reveal" style="margin-top: var(--sp-12);">
+      <h3 class="mt-0">How the loop mechanically works</h3>
+      <p>
+        A lending-loop strategy repeats a simple four-step cycle: deposit wstDIEM as collateral into a
+        lending market, borrow a permitted amount (typically DIEM, a stablecoin, or another accepted
+        asset) against that collateral, use the borrowed funds to buy more wstDIEM, and deposit that
+        wstDIEM back in as additional collateral. Repeating this cycle several times increases total
+        wstDIEM exposure well beyond the original capital — which is how a strategy can turn a modest
+        base yield into a much larger headline APR.
+      </p>
+    </div>
+
+    <div class="stack reveal" style="margin-top: var(--sp-10);">
+      <div class="formula-block">
+        <div class="formula-block__top">
+          <span class="formula-block__label">Gross levered exposure</span>
+          <button class="copy-btn" data-copy="Gross Exposure = Initial Capital × Leverage Multiple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></svg>
+            Copy
+          </button>
+        </div>
+        <code>Gross Exposure = Initial Capital × Leverage Multiple</code>
+        <p class="formula-caption">Plain English: if you loop your position up to 4.4× and started with 10 units of capital, your total wstDIEM exposure is 44 units — the base yield now applies to a much larger balance.</p>
+      </div>
+
+      <div class="formula-block">
+        <div class="formula-block__top">
+          <span class="formula-block__label">Borrow cost drag</span>
+          <button class="copy-btn" data-copy="Borrow Drag = (Leverage Multiple − 1) × Borrow APR">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></svg>
+            Copy
+          </button>
+        </div>
+        <code>Borrow Drag = (Leverage Multiple − 1) × Borrow APR</code>
+        <p class="formula-caption">Plain English: every unit of borrowed exposure costs the prevailing borrow rate. At 4.4× leverage, 3.4 units of your 4.4-unit position are funded by debt, and that debt is not free.</p>
+      </div>
+
+      <div class="formula-block">
+        <div class="formula-block__top">
+          <span class="formula-block__label">Net levered APR</span>
+          <button class="copy-btn" data-copy="Net Levered APR = (Base Yield × Leverage Multiple) − Borrow Drag">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></svg>
+            Copy
+          </button>
+        </div>
+        <code>Net Levered APR = (Base Yield × Leverage Multiple) − Borrow Drag</code>
+        <p class="formula-caption">Plain English: this is the number that ends up in screenshots. It can look dramatically larger than the base yield even when the underlying asset's accrual rate hasn't changed at all — because leverage is doing the work, not the asset.</p>
+      </div>
+    </div>
+
+    <p class="prose reveal" style="margin-top: var(--sp-8); color: var(--text-faint); font-size: 0.9rem;">
+      Try the assumptions yourself in the <a href="#calculator" style="color: var(--accent-strong);">interactive calculator</a> further down this page.
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================
+     4. WHY NO SIMPLE PUBLIC CHART EXISTS
+============================================================ -->
+<section id="no-chart" class="band">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">04 — Methodological limitation</span>
+        <h2>Why no simple public chart exists</h2>
+      </div>
+      <p class="lede">This is a data-availability gap, not a design flaw in the asset.</p>
+    </div>
+
+    <div class="prose reveal">
+      <p>
+        Based on available public discussion, protocol documentation, and community references, there
+        does not appear to be a single canonical public chart that plots wstDIEM's <strong>unlevered</strong>
+        yield over time. What circulates publicly instead tends to be strategy-level APR screenshots —
+        numbers that already have leverage baked in — because those are the figures that are most
+        visually compelling to share.
+      </p>
+      <p>
+        A clean "base yield over time" chart would require a data provider to isolate the wrapper's
+        exchange-rate change from everything else: price volatility of the underlying asset, leverage
+        strategy outputs, and promotional APR framing. That isolation step is exactly what most public
+        dashboards skip, because the exchange-rate signal is less dramatic and more work to compute than
+        a headline APR.
+      </p>
+    </div>
+
+    <div class="timeline reveal">
+      <div class="timeline-step">
+        <h4>Base asset</h4>
+        <p>DIEM is staked. Rewards and fee income begin accruing at the protocol level.</p>
+      </div>
+      <div class="timeline-step">
+        <h4>Wrapper</h4>
+        <p>wstDIEM represents the staked position. Accrual shows up as exchange-rate drift, not a payout.</p>
+      </div>
+      <div class="timeline-step">
+        <h4>Leverage strategy</h4>
+        <p>Lending loops amplify exposure and produce the large APR figures shared publicly.</p>
+      </div>
+      <div class="timeline-step">
+        <h4>Charting challenge</h4>
+        <p>Public dashboards mostly show price or strategy APR — isolating base yield takes extra work.</p>
+      </div>
+    </div>
+
+    <div class="prose reveal" style="margin-top: var(--sp-10);">
+      <p>In the absence of that chart, the practical path is to infer base yield from adjacent, verifiable signals:</p>
+      <ul>
+        <li>Price-ratio changes between wstDIEM and DIEM (or staked DIEM) over a chosen window.</li>
+        <li>Wrapper exchange-rate growth, if the protocol exposes it directly via a contract read or API.</li>
+        <li>Protocol revenue and fee-flow disclosures, where available, as a sanity check on the direction and rough magnitude of accrual.</li>
+        <li>On-chain market data (DEX pools, oracle feeds) as a cross-check against any single source.</li>
+      </ul>
+      <p>The next section turns this into a repeatable framework.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     5. HOW TO ESTIMATE UNLEVERED YIELD (asymmetric layout)
+============================================================ -->
+<section id="estimation">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">05 — Practical framework</span>
+        <h2>Estimating unlevered yield over time</h2>
+      </div>
+      <p class="lede">A four-step method for approximating base yield without a canonical chart.</p>
+    </div>
+
+    <div class="asymmetric reveal">
+      <div class="prose">
+        <h3 class="mt-0">Method</h3>
+        <p>
+          The core idea is to treat the wstDIEM-to-DIEM (or wstDIEM-to-staked-DIEM) exchange rate as the
+          primary signal, since it is the one variable that isolates accrual from price noise and
+          leverage. Everything else in this section supports or sanity-checks that single measurement.
+        </p>
+
+        <div class="formula-block">
+          <div class="formula-block__top">
+            <span class="formula-block__label">Rolling annualized base yield</span>
+            <button class="copy-btn" data-copy="Annualized Yield ≈ ((Rate_end / Rate_start) ^ (365 / days_in_window) − 1)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></svg>
+              Copy
+            </button>
+          </div>
+          <code>Annualized Yield ≈ ((Rate_end / Rate_start) ^ (365 / days_in_window) − 1)</code>
+          <p class="formula-caption">Plain English: take the wrapper's exchange rate at the start and end of a window, compute the growth over that window, then compound it out to a full year for comparability. Shorter windows are noisier; longer windows smooth out short-term variability.</p>
+        </div>
+
+        <h3>Worked example (illustrative numbers only)</h3>
+        <p>
+          The table below uses invented figures to demonstrate the method. It is not a live feed and
+          should not be read as a current or historical value for any real exchange rate.
+        </p>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Window</th>
+                <th class="num">Rate start</th>
+                <th class="num">Rate end</th>
+                <th class="num">Window return</th>
+                <th class="num">Annualized</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>7-day <span class="tag-conceptual">conceptual</span></td><td class="num">1.0000</td><td class="num">1.0009</td><td class="num">0.090%</td><td class="num">~4.9%</td></tr>
+              <tr><td>30-day <span class="tag-conceptual">conceptual</span></td><td class="num">1.0000</td><td class="num">1.0041</td><td class="num">0.410%</td><td class="num">~5.1%</td></tr>
+              <tr><td>90-day <span class="tag-conceptual">conceptual</span></td><td class="num">1.0000</td><td class="num">1.0124</td><td class="num">1.240%</td><td class="num">~5.2%</td></tr>
+              <tr><td>365-day <span class="tag-live">requires live data</span></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="prose" style="font-size: 0.85rem; color: var(--text-faint); margin-top: var(--sp-3);">
+          The 7/30/90-day rows are dummy numbers used only to illustrate the annualization formula.
+          The 365-day row is left blank deliberately — that figure would require pulling a live
+          exchange-rate history, which this static document does not do.
+        </p>
+      </div>
+
+      <aside class="side-note">
+        <h4>Framework checklist</h4>
+        <ol>
+          <li>Pull the wstDIEM ↔ staked DIEM exchange rate (or a reliable price-ratio proxy) at two points in time.</li>
+          <li>Choose a window long enough to smooth noise — 30 to 90 days is typically more stable than 7 days.</li>
+          <li>Annualize using compounding, not simple linear scaling.</li>
+          <li>Cross-check the result against protocol revenue disclosures, if published, for directional sanity.</li>
+          <li>Compare against prevailing borrow rates separately — never blend borrow cost into the base-yield calculation.</li>
+          <li>Repeat across multiple rolling windows to see whether accrual is stable or trending.</li>
+        </ol>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     CALCULATOR
+============================================================ -->
+<section id="calculator" class="band">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">Interactive · illustrative only</span>
+        <h2>Base-yield-to-leverage calculator</h2>
+      </div>
+      <p class="lede">Move the sliders to see how leverage and borrow cost transform an assumed base yield into a strategy-level APR. This tool does not use live data.</p>
+    </div>
+
+    <div class="calc reveal">
+      <div>
+        <div class="calc-field">
+          <label for="baseYield">Assumed unlevered base yield <output id="baseYieldOut">6.0%</output></label>
+          <input type="range" id="baseYield" min="0" max="20" step="0.1" value="6.0" aria-describedby="calcDisclaimer">
+        </div>
+        <div class="calc-field">
+          <label for="leverage">Leverage multiple <output id="leverageOut">4.4×</output></label>
+          <input type="range" id="leverage" min="1" max="8" step="0.1" value="4.4" aria-describedby="calcDisclaimer">
+        </div>
+        <div class="calc-field">
+          <label for="borrowCost">Assumed borrow cost (APR) <output id="borrowCostOut">9.0%</output></label>
+          <input type="range" id="borrowCost" min="0" max="30" step="0.1" value="9.0" aria-describedby="calcDisclaimer">
+        </div>
+      </div>
+
+      <div class="calc-results">
+        <div class="calc-result-row">
+          <span class="rlabel">Gross levered yield (base × leverage)</span>
+          <span class="rvalue" id="grossOut">26.4%</span>
+        </div>
+        <div class="calc-result-row">
+          <span class="rlabel">Borrow cost drag</span>
+          <span class="rvalue" id="dragOut">−30.6%</span>
+        </div>
+        <div class="calc-result-row highlight">
+          <span class="rlabel">Estimated net levered APR</span>
+          <span class="rvalue" id="netOut">−4.2%</span>
+        </div>
+        <p class="calc-disclaimer" id="calcDisclaimer">
+          Educational illustration only. Uses the simplified formulas above (no fees, slippage, funding-rate
+          changes, or liquidation buffer). Real strategy returns depend on live borrow markets, collateral
+          factors, and execution costs — this is not a return projection.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     6. DATA SOURCES
+============================================================ -->
+<section id="data-sources">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">06 — Where to look</span>
+        <h2>Data sources that matter</h2>
+      </div>
+      <p class="lede">Four categories of evidence, and the specific question each one is suited to answer.</p>
+    </div>
+
+    <div class="source-list reveal">
+      <div class="source-row">
+        <h4>Protocol docs &amp; repos</h4>
+        <p>Primary source for how fee routing, wrapper mechanics, and creditDIEM / wstDIEM relationships are designed to work. Best for understanding mechanism, not for live numbers.</p>
+        <a class="placeholder-link" href="#" target="_blank" rel="noopener noreferrer">Add source link<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </div>
+      <div class="source-row">
+        <h4>On-chain explorer / DEX price history</h4>
+        <p>Best source for the wstDIEM ↔ DIEM exchange-rate series needed to run the annualization method described above.</p>
+        <a class="placeholder-link" href="#" target="_blank" rel="noopener noreferrer">Add source link<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </div>
+      <div class="source-row">
+        <h4>Lending market data</h4>
+        <p>Needed to separate borrow-cost drag from base yield when evaluating any leveraged strategy, and to judge whether current borrow rates make looping attractive.</p>
+        <a class="placeholder-link" href="#" target="_blank" rel="noopener noreferrer">Add source link<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </div>
+      <div class="source-row">
+        <h4>Community research / discussion threads</h4>
+        <p>Useful for context and for spotting when an advertised APR is strategy-level, but should be treated as a lead to verify, not as a primary data source on its own.</p>
+        <a class="placeholder-link" href="#" target="_blank" rel="noopener noreferrer">Add source link<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17L17 7M9 7h8v8" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      </div>
+    </div>
+
+    <div class="checklist-panel reveal">
+      <div>
+        <h3 class="mt-0">Framework checklist (downloadable)</h3>
+        <p class="prose" style="color: var(--text-muted); font-size: 0.9rem;">A plain-text copy of the estimation method and data-source checklist above, for offline reference.</p>
+        <ul>
+          <li>Exchange-rate pull points (start / end of window)</li>
+          <li>Window length and annualization formula</li>
+          <li>Revenue / fee disclosure cross-check</li>
+          <li>Borrow-market snapshot, tracked separately</li>
+          <li>Source links for each data category</li>
+        </ul>
+      </div>
+      <div class="checklist-download">
+        <button class="btn btn--primary" id="downloadChecklist" type="button">Download checklist (.txt)</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     7. RISKS AND CAVEATS
+============================================================ -->
+<section id="risks" class="band">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">07 — Risk register</span>
+        <h2>Risk and caveats</h2>
+      </div>
+      <p class="lede">Unlevered exposure and leveraged strategies do not share a risk profile. Read both rows before acting on either.</p>
+    </div>
+
+    <div class="risk-list reveal">
+      <div class="risk-row">
+        <div class="risk-name"><span class="risk-index">01</span> Token price risk</div>
+        <p>DIEM and wstDIEM are market-priced assets. Base yield can be positive while total mark-to-market return is negative if the underlying token's price falls faster than accrual accumulates.</p>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name"><span class="risk-index">02</span> Leverage liquidation risk</div>
+        <p>Looped strategies borrow against wstDIEM collateral. A drop in collateral value, a change in collateral factors, or an oracle disruption can trigger liquidation — a risk that does not exist for an unlevered holder.</p>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name"><span class="risk-index">03</span> Borrow rate variability</div>
+        <p>Lending-market borrow rates float with utilization. A strategy modeled at one borrow cost can see its net APR compress or turn negative if rates rise, independent of anything happening to the base asset.</p>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name"><span class="risk-index">04</span> Ecosystem usage dependence</div>
+        <p>If yield is genuinely tied to fee flows and inference/compute-related monetization, accrual should be expected to track ecosystem usage — meaning it can slow materially if usage or fee volume declines.</p>
+      </div>
+      <div class="risk-row">
+        <div class="risk-name"><span class="risk-index">05</span> Smart contract and governance risk</div>
+        <p>Wrapper contracts, lending markets, and any routing between DIEM, creditDIEM, and wstDIEM carry standard smart-contract risk, plus governance risk if parameters (fees, collateral factors, routing logic) can be changed by protocol governance.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     8. FAQ
+============================================================ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head section-head--split reveal">
+      <div>
+        <span class="kicker">08 — FAQ</span>
+        <h2>Frequently asked questions</h2>
+      </div>
+      <p class="lede">Short, direct answers to the questions this framework gets asked most.</p>
+    </div>
+
+    <div class="faq-list reveal">
+      <details class="faq-item">
+        <summary>Is 56% APR the base yield?<span class="plus" aria-hidden="true"></span></summary>
+        <div class="faq-answer">
+          <p>Almost certainly not on its own. A figure in that range, if seen publicly, is far more consistent
+          with a leveraged lending-loop strategy output than with an unlevered accrual rate. Treat any large,
+          round, headline APR as a strategy number until proven otherwise — check the leverage multiple and
+          borrow cost assumptions behind it before comparing it to a base-yield estimate.</p>
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Does wstDIEM pay yield in cash?<span class="plus" aria-hidden="true"></span></summary>
+        <div class="faq-answer">
+          <p>No. There is no coupon or cash distribution to a holder's wallet. Value accrual is reflected in
+          the wstDIEM-to-staked-DIEM exchange rate increasing over time, which means realizing the yield
+          requires either redeeming/unwrapping or selling at the appreciated rate.</p>
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Can unlevered yield be charted directly?<span class="plus" aria-hidden="true"></span></summary>
+        <div class="faq-answer">
+          <p>Not from a single canonical public source that we are aware of. It can be approximated by
+          tracking the wrapper's exchange rate over time and annualizing the change — the method described
+          in the estimation framework above — but that requires assembling the data yourself rather than
+          reading it off an existing chart.</p>
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>Why can leverage make yield look much higher?<span class="plus" aria-hidden="true"></span></summary>
+        <div class="faq-answer">
+          <p>Because a loop multiplies exposure to the same base yield. If the base yield is 6% and a strategy
+          reaches 4.4× exposure, the gross levered yield before costs is roughly 26.4% — and net APR after
+          borrow-cost drag can still land well above the base rate, depending on prevailing borrow costs.
+          The asset's own accrual rate has not changed; the exposure to it has.</p>
+        </div>
+      </details>
+      <details class="faq-item">
+        <summary>What would I need to monitor weekly?<span class="plus" aria-hidden="true"></span></summary>
+        <div class="faq-answer">
+          <p>At minimum: the wstDIEM exchange-rate trend (to track base yield direction), prevailing borrow
+          rates on any lending market you'd use for a loop (to track strategy viability), and any protocol
+          disclosures on fee or revenue flow (to sanity-check whether accrual is trending with usage).</p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============================================================
+     FOOTER
+============================================================ -->
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <div class="footer-brand">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="16" cy="16" r="14.5" stroke="var(--accent)" stroke-width="1.4"/>
+            <path d="M8 13.5L12.5 22L16 15L19.5 22L24 13.5" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <span>wstDIEM Yield</span>
+        </div>
+        <p class="prose" style="font-size: 0.88rem; color: var(--text-muted); max-width: 42ch;">
+          A framework for separating unlevered base yield from advertised leveraged-strategy APR, written
+          for readers already fluent in staking, wrapped assets, and lending markets.
+        </p>
+      </div>
+      <div>
+        <h4>Sections</h4>
+        <ul>
+          <li><a href="#what-is">What wstDIEM is</a></li>
+          <li><a href="#yield-sources">Yield sources</a></li>
+          <li><a href="#unlevered-vs-leveraged">Unlevered vs. leveraged</a></li>
+          <li><a href="#estimation">Estimation framework</a></li>
+          <li><a href="#risks">Risk and caveats</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>References (placeholders)</h4>
+        <ul>
+          <li><a href="#" target="_blank" rel="noopener noreferrer">[1] Protocol documentation — add link</a></li>
+          <li><a href="#" target="_blank" rel="noopener noreferrer">[2] On-chain exchange-rate source — add link</a></li>
+          <li><a href="#" target="_blank" rel="noopener noreferrer">[3] Lending market data — add link</a></li>
+          <li><a href="#" target="_blank" rel="noopener noreferrer">[4] Community research thread — add link</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-note">
+      This page is an educational explainer intended to help readers reason about wstDIEM's yield
+      mechanics and to separate unlevered base accrual from leveraged-strategy APR. It is not investment
+      advice, not a solicitation, and not a guarantee of any yield, return, or protocol behavior. Figures
+      labeled "illustrative," "conceptual," or "dummy" are invented for demonstration purposes only and do
+      not reflect live or historical data. Verify all mechanics against primary protocol documentation and
+      current market data before making any financial decision.
+    </div>
+    <div class="footer-legal">
+      <span>© 2026 — Educational reference document.</span>
+      <span>Not investment advice.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Theme toggle (session only, no storage) ---------- */
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  var label = document.getElementById('themeLabel');
+  var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var current = systemDark ? 'dark' : 'light';
+
+  function applyTheme(mode) {
+    current = mode;
+    root.setAttribute('data-theme', mode);
+    toggle.setAttribute('aria-pressed', mode === 'dark' ? 'true' : 'false');
+    label.textContent = mode === 'dark' ? 'Dark' : 'Light';
+  }
+  applyTheme(current);
+
+  toggle.addEventListener('click', function () {
+    applyTheme(current === 'dark' ? 'light' : 'dark');
+  });
+
+  /* ---------- Mobile nav ---------- */
+  var navToggle = document.getElementById('navToggle');
+  var mobileNav = document.getElementById('mobileNav');
+  navToggle.addEventListener('click', function () {
+    var open = mobileNav.classList.toggle('is-open');
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  mobileNav.querySelectorAll('a').forEach(function (a) {
+    a.addEventListener('click', function () {
+      mobileNav.classList.remove('is-open');
+      navToggle.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  /* ---------- Scroll progress bar ---------- */
+  var progressBar = document.getElementById('progressBar');
+  function updateProgress() {
+    var doc = document.documentElement;
+    var scrollTop = doc.scrollTop || document.body.scrollTop;
+    var scrollHeight = (doc.scrollHeight - doc.clientHeight);
+    var pct = scrollHeight > 0 ? (scrollTop / scrollHeight) * 100 : 0;
+    progressBar.style.width = pct + '%';
+  }
+  document.addEventListener('scroll', updateProgress, { passive: true });
+  updateProgress();
+
+  /* ---------- Reveal-on-scroll ---------- */
+  var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('is-visible'); });
+  }
+
+  /* ---------- Copy to clipboard ---------- */
+  document.querySelectorAll('.copy-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var text = btn.getAttribute('data-copy');
+      var done = function () {
+        var original = btn.textContent;
+        btn.setAttribute('data-copied', 'true');
+        btn.textContent = 'Copied';
+        setTimeout(function () {
+          btn.removeAttribute('data-copied');
+          btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M4 16V5a1 1 0 0 1 1-1h11"/></svg> ' + original.replace('Copied', 'Copy');
+        }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text, done); });
+      } else {
+        fallbackCopy(text, done);
+      }
+    });
+  });
+  function fallbackCopy(text, cb) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    cb();
+  }
+
+  /* ---------- Calculator ---------- */
+  var baseYieldInput = document.getElementById('baseYield');
+  var leverageInput = document.getElementById('leverage');
+  var borrowCostInput = document.getElementById('borrowCost');
+  var baseYieldOut = document.getElementById('baseYieldOut');
+  var leverageOut = document.getElementById('leverageOut');
+  var borrowCostOut = document.getElementById('borrowCostOut');
+  var grossOut = document.getElementById('grossOut');
+  var dragOut = document.getElementById('dragOut');
+  var netOut = document.getElementById('netOut');
+
+  function fmtPct(n) {
+    var sign = n < 0 ? '−' : '';
+    return sign + Math.abs(n).toFixed(1) + '%';
+  }
+
+  function recalc() {
+    var baseYield = parseFloat(baseYieldInput.value);
+    var leverage = parseFloat(leverageInput.value);
+    var borrowCost = parseFloat(borrowCostInput.value);
+
+    baseYieldOut.textContent = baseYield.toFixed(1) + '%';
+    leverageOut.textContent = leverage.toFixed(1) + '×';
+    borrowCostOut.textContent = borrowCost.toFixed(1) + '%';
+
+    var gross = baseYield * leverage;
+    var drag = (leverage - 1) * borrowCost;
+    var net = gross - drag;
+
+    grossOut.textContent = fmtPct(gross);
+    dragOut.textContent = '−' + drag.toFixed(1) + '%';
+    netOut.textContent = fmtPct(net);
+  }
+  [baseYieldInput, leverageInput, borrowCostInput].forEach(function (el) {
+    el.addEventListener('input', recalc);
+  });
+  recalc();
+
+  /* ---------- Checklist download ---------- */
+  var downloadBtn = document.getElementById('downloadChecklist');
+  downloadBtn.addEventListener('click', function () {
+    var content = [
+      'wstDIEM UNLEVERED YIELD — FRAMEWORK CHECKLIST',
+      '================================================',
+      '',
+      '1. EXCHANGE-RATE PULL POINTS',
+      '   - Record wstDIEM <-> staked DIEM exchange rate at window start.',
+      '   - Record the same rate at window end.',
+      '',
+      '2. WINDOW LENGTH & ANNUALIZATION',
+      '   - Prefer 30-90 day windows over 7-day windows to reduce noise.',
+      '   - Annualize with: ((Rate_end / Rate_start) ^ (365 / days)) - 1',
+      '',
+      '3. REVENUE / FEE CROSS-CHECK',
+      '   - Compare direction (up/down) against any published protocol',
+      '     revenue or fee-flow disclosures.',
+      '',
+      '4. BORROW-MARKET SNAPSHOT (tracked separately from base yield)',
+      '   - Record prevailing borrow APR for any asset used in a loop.',
+      '   - Never blend borrow cost into the base-yield calculation.',
+      '',
+      '5. SOURCE LINKS',
+      '   - Protocol docs / repos: ______________________',
+      '   - On-chain explorer / DEX price history: ______________________',
+      '   - Lending market data: ______________________',
+      '   - Community research: ______________________',
+      '',
+      'Educational reference only. Not investment advice.'
+    ].join('\n');
+    var blob = new Blob([content], { type: 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'wstdiem-yield-framework-checklist.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  });
+
+})();
+</script>
+
+</body>
+</html>
